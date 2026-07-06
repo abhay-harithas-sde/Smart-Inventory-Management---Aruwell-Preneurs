@@ -19,7 +19,7 @@ LLM_MODEL = "gpt-5.2"
 
 SCHEMA_DESCRIPTION = """
 You are a MongoDB aggregation query generator for a multi-tenant ERP.
-Every query MUST include a $match with tenant_id = "{tenant_id}" as the FIRST stage.
+Every query MUST include a $match with tenant_id = "__TENANT_ID__" as the FIRST stage.
 Collections and fields:
 - sales: {tenant_id, id, invoice_no, created_at (ISO string), total, subtotal, tax,
          customer_name, location_id, payment_mode, status,
@@ -73,7 +73,7 @@ def _sanitize_pipeline(pipeline: list, tenant_id: str) -> list:
 
 @router.post("/nlq")
 async def nlq(inp: NLQIn, ctx: AuthContext = Depends(get_current)):
-    system = SCHEMA_DESCRIPTION.format(tenant_id=ctx.tenant_id)
+    system = SCHEMA_DESCRIPTION.replace("__TENANT_ID__", ctx.tenant_id)
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=f"nlq-{ctx.tenant_id}-{ctx.user_id}",
