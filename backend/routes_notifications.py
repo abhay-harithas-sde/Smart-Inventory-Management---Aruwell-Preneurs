@@ -130,6 +130,53 @@ async def send_daily_pnl(inp: WhatsAppIn, ctx: AuthContext = Depends(require_rol
     return {"sent": True, "sid": sid}
 
 
+class InvoiceWhatsAppIn(BaseModel):
+    sale_id: str
+    to: str            # E.164 like +919876543210
+
+
+@router.post("/whatsapp/invoice")
+async def send_invoice_whatsapp(inp: InvoiceWhatsAppIn, ctx: AuthContext = Depends(require_roles("owner", "manager", "cashier"))):
+    """Compose an invoice from a sale and send via WhatsApp."""
+    sale = await db.sales.find_one({"tenant_id": ctx.tenant_id, "id": inp.sale_id}, {"_id": 0})
+    if not sale:
+        raise HTTPException(404, "Sale not found")
+
+    tenant = await db.tenants.find_one({"id": ctx.tenant_id}, {"_id": 0})
+    store_name = (tenant or {}).get("name", "Your Store")
+
+    lines_txt = "\n".join(
+        f"• {l['qty']}× {l['name']} — ₹{l.get('line_total', l['qty'] * l['price']):.2f}"
+        for l in sale["lines"][:20]
+    )
+    if len(sale["lines"]) > 20:
+        lines_txt += f"\n…and {len(sale['lines']) - 20} more items"
+
+    body = (
+        f"🧾 *{store_name}*\n"
+        f"Invoice: {sale['invoice_no']}\n"
+        f"Customer: {sale.get('customer_name') or 'Walk-in'}\n\n"
+        f"{lines_txt}\n\n"
+        f"Subtotal: ₹{sale['subtotal']:.2f}\n"
+        f"Tax (GST): ₹{sale['tax']:.2f}\n"
+        f"*Total: ₹{sale['total']:.2f}*\n"
+        f"Paid via {sale['payment_mode'].upper()}\n\n"
+        f"Thank you for your business!"
+    )
+
+    try:
+        sid = _send_whatsapp(inp.to, body)
+    except TwilioRestException as e:
+        raise HTTPException(400, f"Twilio: {e.msg}")
+
+    await db.notifications.insert_one({
+        "tenant_id": ctx.tenant_id, "channel": "whatsapp", "kind": "invoice",
+        "sale_id": inp.sale_id, "invoice_no": sale["invoice_no"],
+        "to": inp.to, "body": body, "provider_sid": sid, "sent_at": now_iso(),
+    })
+    return {"sent": True, "sid": sid, "invoice_no": sale["invoice_no"]}
+
+
 @router.get("/history")
 async def list_notifications(ctx: AuthContext = Depends(get_current)):
     return await db.notifications.find(

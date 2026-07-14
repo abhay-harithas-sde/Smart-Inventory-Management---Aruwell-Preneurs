@@ -109,8 +109,19 @@ async def webhook(request: Request):
     event = data.get("event")
     entity = data.get("payload", {}).get("payment", {}).get("entity", {})
     if event == "payment.captured":
+        order_id = entity.get("order_id")
+        await db.razorpay_orders.update_one(
+            {"id": order_id},
+            {"$set": {"status": "paid", "razorpay_payment_id": entity.get("id"), "paid_at": now_iso()}},
+        )
+        # Best-effort: mark any sale referencing this order_id as paid too
+        await db.sales.update_many(
+            {"razorpay_order_id": order_id},
+            {"$set": {"status": "paid", "razorpay_payment_id": entity.get("id")}},
+        )
+    elif event == "payment.failed":
         await db.razorpay_orders.update_one(
             {"id": entity.get("order_id")},
-            {"$set": {"status": "paid", "razorpay_payment_id": entity.get("id"), "paid_at": now_iso()}},
+            {"$set": {"status": "failed", "failed_reason": entity.get("error_description", "")}},
         )
     return {"ok": True}
