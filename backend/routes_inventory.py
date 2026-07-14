@@ -45,11 +45,18 @@ async def list_products(q: Optional[str] = None, ctx: AuthContext = Depends(get_
             {"barcode": {"$regex": q, "$options": "i"}},
         ]
     products = await db.products.find(query, {"_id": 0}).sort("name", 1).to_list(2000)
-    # attach total stock
+    # Batch-fetch all stock levels for this tenant once, then build lookup maps in memory
+    all_levels = await db.stock_levels.find({"tenant_id": ctx.tenant_id}, {"_id": 0}).to_list(10000)
+    totals = {}
+    by_loc = {}
+    for l in all_levels:
+        pid = l["product_id"]
+        qty = l.get("qty", 0)
+        totals[pid] = totals.get(pid, 0) + qty
+        by_loc.setdefault(pid, {})[l["location_id"]] = qty
     for p in products:
-        levels = await db.stock_levels.find({"tenant_id": ctx.tenant_id, "product_id": p["id"]}, {"_id": 0}).to_list(50)
-        p["stock"] = sum(l.get("qty", 0) for l in levels)
-        p["stock_by_location"] = {l["location_id"]: l.get("qty", 0) for l in levels}
+        p["stock"] = totals.get(p["id"], 0)
+        p["stock_by_location"] = by_loc.get(p["id"], {})
     return products
 
 
@@ -98,14 +105,19 @@ async def adjust_stock(body: dict, ctx: AuthContext = Depends(require_roles("own
 # ----- Alerts -----
 @router.get("/alerts")
 async def alerts(ctx: AuthContext = Depends(get_current)):
-    # Low stock
+    # Batch-fetch all stock levels once, build product_id -> total_stock map
+    all_levels = await db.stock_levels.find({"tenant_id": ctx.tenant_id}, {"_id": 0}).to_list(10000)
+    stock_map = {}
+    for l in all_levels:
+        stock_map[l["product_id"]] = stock_map.get(l["product_id"], 0) + l.get("qty", 0)
+
     products = await db.products.find(scope(ctx.tenant_id), {"_id": 0}).to_list(2000)
     low = []
     for p in products:
-        levels = await db.stock_levels.find({"tenant_id": ctx.tenant_id, "product_id": p["id"]}, {"_id": 0}).to_list(50)
-        total = sum(l.get("qty", 0) for l in levels)
+        total = stock_map.get(p["id"], 0)
         if total <= p.get("reorder_level", 10):
             low.append({"product_id": p["id"], "name": p["name"], "sku": p["sku"], "stock": total, "reorder_level": p.get("reorder_level", 10)})
+
     # Expiring within 60 days
     from datetime import datetime, timezone, timedelta
     cutoff = (datetime.now(timezone.utc) + timedelta(days=60)).isoformat()
