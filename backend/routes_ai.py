@@ -152,9 +152,7 @@ async def forecast(ctx: AuthContext = Depends(get_current)):
     for pid, data in per_prod.items():
         days = data["days"]
         total = sum(days.values())
-        num_days = max(len(days), 1)
-        avg_daily = total / max((now - datetime.fromisoformat(sales[-1]["created_at"].replace("Z", "+00:00"))).days if sales else 30, 30)
-        avg_daily = total / 60.0  # simpler: sold over 60 days
+        avg_daily = total / 60.0  # sold over 60 days
         forecast_30d = round(avg_daily * 30, 2)
         product = prod_map.get(pid, {})
         current_stock = stock_by_prod.get(pid, 0)
