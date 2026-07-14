@@ -2,9 +2,10 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../lib/api";
 import { fmtCurrency, fmtNumber } from "../lib/fmt";
-import { Plus, Search, AlertTriangle, X } from "lucide-react";
+import { Plus, Search, AlertTriangle, X, Upload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog";
+import { uploadImageSigned } from "../lib/upload";
 
 const emptyForm = { sku: "", barcode: "", name: "", category: "", unit: "pcs", tax_rate: 18, price: 0, cost: 0, reorder_level: 10, lead_time_days: 7, track_batch: false, image_url: "" };
 
@@ -124,6 +125,9 @@ export default function Inventory() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg bg-[#0C0C0F] border-[#27272A]">
           <DialogTitle className="font-display text-lg">{editing ? "Edit product" : "New product"}</DialogTitle>
+
+          <ImageUploader value={form.image_url} onChange={(url) => set("image_url", url)} />
+
           <div className="grid grid-cols-2 gap-3 mt-3">
             <Field label="SKU" value={form.sku} onChange={(v) => set("sku", v)} testId="pf-sku" />
             <Field label="Barcode" value={form.barcode} onChange={(v) => set("barcode", v)} testId="pf-barcode" />
@@ -155,6 +159,41 @@ function Field({ label, value, onChange, type = "text", full, testId }) {
       <label className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 block">{label}</label>
       <input data-testid={testId} type={type} value={value} onChange={(e) => onChange(e.target.value)}
         className="w-full h-9 px-3 rounded-md bg-[#18181B] border border-[#27272A] focus:border-blue-500 focus:outline-none text-[13px]" />
+    </div>
+  );
+}
+
+function ImageUploader({ value, onChange }) {
+  const [uploading, setUploading] = useState(false);
+  const onPick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadImageSigned(file, "products");
+      onChange(url);
+      toast.success("Image uploaded");
+    } catch (err) {
+      toast.error(err?.message || "Upload failed");
+    } finally { setUploading(false); }
+  };
+
+  return (
+    <div className="mt-3">
+      <label className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 block">Product image</label>
+      <div className="flex items-center gap-3">
+        <div className="w-16 h-16 rounded-md bg-[#18181B] border border-[#27272A] overflow-hidden flex items-center justify-center">
+          {value ? <img src={value} alt="" className="w-full h-full object-cover" /> : <Upload className="w-4 h-4 text-zinc-600" />}
+        </div>
+        <label className="h-9 px-3 rounded-md bg-[#18181B] border border-[#27272A] hover:bg-[#27272A] text-[12px] font-medium cursor-pointer flex items-center gap-2" data-testid="pf-image-upload">
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          {uploading ? "Uploading…" : (value ? "Replace" : "Upload")}
+          <input type="file" accept="image/*" className="hidden" onChange={onPick} disabled={uploading} />
+        </label>
+        {value && (
+          <button onClick={() => onChange("")} className="text-[11px] text-zinc-500 hover:text-red-400">Remove</button>
+        )}
+      </div>
     </div>
   );
 }

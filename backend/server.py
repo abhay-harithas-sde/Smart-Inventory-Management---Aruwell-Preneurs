@@ -17,6 +17,10 @@ from routes_procurement import router as procurement_router  # noqa: E402
 from routes_finance import router as finance_router  # noqa: E402
 from routes_dashboard import router as dashboard_router  # noqa: E402
 from routes_ai import router as ai_router  # noqa: E402
+from routes_payments import router as payments_router  # noqa: E402
+from routes_notifications import router as notifications_router  # noqa: E402
+from routes_tts import router as tts_router  # noqa: E402
+from routes_uploads import router as uploads_router  # noqa: E402
 from seed import seed_demo  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -43,6 +47,10 @@ api_router.include_router(procurement_router)
 api_router.include_router(finance_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(ai_router)
+api_router.include_router(payments_router)
+api_router.include_router(notifications_router)
+api_router.include_router(tts_router)
+api_router.include_router(uploads_router)
 
 app.include_router(api_router)
 

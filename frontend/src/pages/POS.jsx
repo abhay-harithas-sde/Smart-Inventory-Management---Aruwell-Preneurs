@@ -2,8 +2,9 @@ import React, { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../lib/api";
 import { fmtCurrency } from "../lib/fmt";
+import { payWithRazorpay } from "../lib/razorpay";
 import { toast } from "sonner";
-import { Plus, Minus, X, Search, ScanBarcode, Loader2, ReceiptText } from "lucide-react";
+import { Plus, Minus, X, Search, ScanBarcode, Loader2, ReceiptText, IndianRupee } from "lucide-react";
 
 export default function POS() {
   const qc = useQueryClient();
@@ -180,6 +181,27 @@ export default function POS() {
           >
             {checkout.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
             Pay <kbd className="ml-2">Space</kbd>
+          </button>
+
+          <button
+            onClick={async () => {
+              if (cart.length === 0) return;
+              const res = await payWithRazorpay({
+                amountRupees: totals.total,
+                receipt: `POS-${Date.now()}`,
+                prefill: { name: customer || "Walk-in" },
+                notes: { source: "pos" },
+              });
+              if (res.paid) {
+                setPaymentMode("razorpay");
+                setTimeout(() => checkout.mutate(), 100);
+              }
+            }}
+            disabled={cart.length === 0 || !locationId}
+            data-testid="pos-razorpay-btn"
+            className="w-full h-10 rounded-md bg-[#18181B] border border-[#27272A] hover:border-blue-500/40 disabled:opacity-50 text-zinc-100 font-medium flex items-center justify-center gap-2 text-[13px] transition"
+          >
+            <IndianRupee className="w-3.5 h-3.5" /> Collect via Razorpay (UPI/Card)
           </button>
         </div>
       </aside>

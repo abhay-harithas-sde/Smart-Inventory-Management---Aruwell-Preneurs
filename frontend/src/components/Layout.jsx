@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import {
   LayoutDashboard, Package, ScanBarcode, Receipt, Truck, Wallet,
-  Sparkles, Settings, LogOut, Search, Building2, ChevronDown
+  Sparkles, Settings, LogOut, Search, Building2, ChevronDown, MessageCircle
 } from "lucide-react";
 import NLQDialog from "./NLQDialog";
 import { Button } from "./ui/button";
@@ -19,6 +19,7 @@ const nav = [
   { to: "/procurement", label: "Procurement", icon: Truck, testId: "nav-procurement" },
   { to: "/finance", label: "Finance", icon: Wallet, testId: "nav-finance" },
   { to: "/ai", label: "AI Insights", icon: Sparkles, testId: "nav-ai" },
+  { to: "/notifications", label: "Notifications", icon: MessageCircle, testId: "nav-notifications" },
 ];
 
 export default function Layout() {

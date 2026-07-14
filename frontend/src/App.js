@@ -16,6 +16,7 @@ import Finance from "@/pages/Finance";
 import AIInsights from "@/pages/AIInsights";
 import Settings from "@/pages/Settings";
 import AuthCallback from "@/pages/AuthCallback";
+import Notifications from "@/pages/Notifications";
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -49,6 +50,7 @@ function AppRoutes() {
         <Route path="procurement" element={<Procurement />} />
         <Route path="finance" element={<Finance />} />
         <Route path="ai" element={<AIInsights />} />
+        <Route path="notifications" element={<Notifications />} />
         <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
