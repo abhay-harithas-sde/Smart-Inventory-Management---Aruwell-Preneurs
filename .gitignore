@@ -8,6 +8,7 @@ credentials.json
 frontend/node_modules/.cache/default-development/0.pack
 node_modules
 frontend/node_modules
+frontend/package-lock.json
 backend/__pycache__
 **/__pycache__
 *.pyc

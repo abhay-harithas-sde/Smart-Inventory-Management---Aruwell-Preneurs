@@ -75,7 +75,7 @@ export default function POS() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [cart, checkout]);
+  }, [cart, checkout, paymentMode]);
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex" data-testid="pos-page">

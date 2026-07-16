@@ -8,8 +8,21 @@ import { toast } from "sonner";
 export async function payWithRazorpay({ amountRupees, receipt, prefill = {}, notes = {} }) {
   if (!window.Razorpay) throw new Error("Razorpay Checkout not loaded");
 
-  const orderRes = await api.post("/payments/razorpay/order", { amount: amountRupees, receipt, notes });
+  let orderRes;
+  try {
+    orderRes = await api.post("/payments/razorpay/order", { amount: amountRupees, receipt, notes });
+  } catch (e) {
+    const msg = e?.response?.data?.detail || "Failed to create Razorpay order";
+    toast.error(msg);
+    return { paid: false, error: msg };
+  }
+
   const { order_id, amount, currency, key_id } = orderRes.data;
+
+  if (!key_id || !order_id) {
+    toast.error("Invalid Razorpay order response — missing key or order ID");
+    return { paid: false, error: "invalid_order" };
+  }
 
   return new Promise((resolve) => {
     const options = {
