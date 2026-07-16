@@ -101,14 +101,17 @@
                     }),
                     (e.__SV = 1));
             })(document, window.posthog || []);
-            posthog.init("%REACT_APP_POSTHOG_KEY%", {
-                api_host: "https://us.i.posthog.com",
-                person_profiles: "identified_only", // or 'always' to create profiles for anonymous users as well,
-                session_recording: {
-                    recordCrossOriginIframes: true,
-                    capturePerformance: false,
-                },
-            });
+            var _phKey = "%REACT_APP_POSTHOG_KEY%";
+            if (_phKey && _phKey.indexOf("%") === -1) {
+                posthog.init(_phKey, {
+                    api_host: "https://us.i.posthog.com",
+                    person_profiles: "identified_only",
+                    session_recording: {
+                        recordCrossOriginIframes: true,
+                        capturePerformance: false,
+                    },
+                });
+            }
         </script>
     </body>
 </html>
