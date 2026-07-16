@@ -64,7 +64,7 @@
     "start": "craco start",
     "build": "craco build",
     "test": "craco test",
-    "serve": "serve -s build -l $PORT"
+    "serve": "serve -s build -p $PORT"
   },
   "browserslist": {
     "production": [
@@ -79,7 +79,7 @@
     ]
   },
   "devDependencies": {
-    "serve": "14.2.4",
+    "serve": "13.0.4",
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
     "@craco/craco": "7.1.0",
     "@emergentbase/visual-edits": "https://assets.emergent.sh/npm/emergentbase-visual-edits-1.0.13.tgz",
