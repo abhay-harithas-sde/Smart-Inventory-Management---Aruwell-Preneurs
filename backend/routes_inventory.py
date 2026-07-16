@@ -16,6 +16,8 @@ async def list_locations(ctx: AuthContext = Depends(get_current)):
 
 @router.post("/locations")
 async def create_location(body: dict, ctx: AuthContext = Depends(require_roles("owner", "manager"))):
+    if not body.get("name", "").strip():
+        raise HTTPException(422, "name is required")
     loc = Location(tenant_id=ctx.tenant_id, name=body["name"], address=body.get("address", ""))
     await db.locations.insert_one(loc.model_dump())
     return loc.model_dump()
@@ -29,6 +31,8 @@ async def list_categories(ctx: AuthContext = Depends(get_current)):
 
 @router.post("/categories")
 async def create_category(body: dict, ctx: AuthContext = Depends(require_roles("owner", "manager"))):
+    if not body.get("name", "").strip():
+        raise HTTPException(422, "name is required")
     c = Category(tenant_id=ctx.tenant_id, name=body["name"])
     await db.categories.insert_one(c.model_dump())
     return c.model_dump()
@@ -94,9 +98,15 @@ async def delete_product(pid: str, ctx: AuthContext = Depends(require_roles("own
 # ----- Stock adjustment -----
 @router.post("/adjust")
 async def adjust_stock(body: dict, ctx: AuthContext = Depends(require_roles("owner", "manager", "warehouse"))):
-    pid = body["product_id"]
-    lid = body["location_id"]
-    qty = float(body["qty"])
+    pid = body.get("product_id")
+    lid = body.get("location_id")
+    qty_raw = body.get("qty")
+    if not pid or not lid or qty_raw is None:
+        raise HTTPException(422, "product_id, location_id, and qty are required")
+    try:
+        qty = float(qty_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "qty must be a number")
     note = body.get("note", "manual adjustment")
     await _apply_movement(ctx.tenant_id, pid, lid, qty, "adjustment", "", note, unit_cost=body.get("cost", 0))
     return {"ok": True}

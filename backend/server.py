@@ -23,6 +23,7 @@ from routes_notifications import router as notifications_router  # noqa: E402
 from routes_tts import router as tts_router  # noqa: E402
 from routes_uploads import router as uploads_router  # noqa: E402
 from seed import seed_demo  # noqa: E402
+from auth import AuthContext, get_current, require_roles  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ async def root():
 
 
 @api_router.post("/seed/demo")
-async def run_seed():
+async def run_seed(ctx: AuthContext = Depends(require_roles("owner"))):
     return await seed_demo()
 
 

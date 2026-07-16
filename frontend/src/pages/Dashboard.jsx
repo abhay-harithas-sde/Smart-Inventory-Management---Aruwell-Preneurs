@@ -76,10 +76,18 @@ function SpeakButton({ text }) {
 
 export default function Dashboard() {
   const { tenant } = useAuth();
-  const { data, isLoading } = useQuery({ queryKey: ["dashboard-summary"], queryFn: async () => (await api.get("/dashboard/summary")).data });
+  const { data, isLoading, isError } = useQuery({ queryKey: ["dashboard-summary"], queryFn: async () => (await api.get("/dashboard/summary")).data });
   const { data: insights } = useQuery({ queryKey: ["ai-insights"], queryFn: async () => (await api.get("/ai/insights")).data, staleTime: 5 * 60 * 1000 });
 
+  React.useEffect(() => { document.title = "Dashboard — Smart Ledger"; }, []);
+
   if (isLoading) return <div className="p-8 text-sm text-zinc-500">Loading…</div>;
+  if (isError) return (
+    <div className="p-8 text-sm text-red-400 flex flex-col items-center gap-2">
+      <AlertTriangle className="w-5 h-5" />
+      <span>Failed to load dashboard data. Check your connection and try refreshing.</span>
+    </div>
+  );
   const s = data || {};
 
   return (

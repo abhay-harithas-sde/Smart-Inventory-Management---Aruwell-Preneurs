@@ -13,6 +13,8 @@ export default function Procurement() {
   const [supOpen, setSupOpen] = useState(false);
   const [grnOpen, setGrnOpen] = useState(null);
 
+  React.useEffect(() => { document.title = "Procurement — Smart Ledger"; }, []);
+
   const { data: pos = [] } = useQuery({ queryKey: ["po"], queryFn: async () => (await api.get("/procurement/pos")).data });
   const { data: suppliers = [] } = useQuery({ queryKey: ["suppliers"], queryFn: async () => (await api.get("/procurement/suppliers")).data });
   const { data: locations = [] } = useQuery({ queryKey: ["locations"], queryFn: async () => (await api.get("/inventory/locations")).data });

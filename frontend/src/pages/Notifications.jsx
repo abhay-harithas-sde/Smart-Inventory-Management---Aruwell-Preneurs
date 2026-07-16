@@ -10,6 +10,8 @@ export default function Notifications() {
   const [phone, setPhone] = useState("");
   const [body, setBody] = useState("");
 
+  React.useEffect(() => { document.title = "Notifications — Smart Ledger"; }, []);
+
   const { data: history = [], isLoading } = useQuery({
     queryKey: ["notifications"],
     queryFn: async () => (await api.get("/notify/history")).data,

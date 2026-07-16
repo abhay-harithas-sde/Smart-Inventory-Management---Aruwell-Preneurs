@@ -12,6 +12,8 @@ export default function Sales() {
   const [waSale, setWaSale] = useState(null);
   const [refundTarget, setRefundTarget] = useState(null);
 
+  React.useEffect(() => { document.title = "Sales — Smart Ledger"; }, []);
+
   const { data: sales = [], isLoading } = useQuery({ queryKey: ["sales"], queryFn: async () => (await api.get("/pos/sales?limit=200")).data });
 
   const refund = useMutation({

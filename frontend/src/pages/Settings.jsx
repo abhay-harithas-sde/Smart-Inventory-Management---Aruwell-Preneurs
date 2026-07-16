@@ -12,6 +12,8 @@ export default function Settings() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ email: "", name: "", role: "cashier", password: "" });
 
+  React.useEffect(() => { document.title = "Settings — Smart Ledger"; }, []);
+
   const { data: users = [] } = useQuery({ queryKey: ["users"], queryFn: async () => (await api.get("/auth/users")).data });
 
   const invite = useMutation({

@@ -5,6 +5,7 @@ Flow: cashier at POS → create Razorpay order for sale amount → customer pays
 import os
 import hmac
 import hashlib
+import json
 import razorpay
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -14,9 +15,9 @@ from models import now_iso, gen_id
 
 router = APIRouter(prefix="/payments/razorpay", tags=["payments"])
 
-_key_id = os.environ["RAZORPAY_KEY_ID"]
-_key_secret = os.environ["RAZORPAY_KEY_SECRET"]
-_client = razorpay.Client(auth=(_key_id, _key_secret))
+_key_id = os.environ.get("RAZORPAY_KEY_ID", "")
+_key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+_client = razorpay.Client(auth=(_key_id, _key_secret)) if _key_id and _key_secret else None
 
 
 class CreateOrderIn(BaseModel):
@@ -39,6 +40,8 @@ async def config(ctx: AuthContext = Depends(get_current)):
 
 @router.post("/order")
 async def create_order(inp: CreateOrderIn, ctx: AuthContext = Depends(require_roles("owner", "manager", "cashier"))):
+    if not _client:
+        raise HTTPException(503, "Razorpay not configured")
     amount_paise = int(round(inp.amount * 100))
     if amount_paise <= 0:
         raise HTTPException(400, "Amount must be positive")
@@ -105,7 +108,10 @@ async def webhook(request: Request):
     if not hmac.compare_digest(expected, signature):
         raise HTTPException(400, "Invalid webhook signature")
 
-    data = await request.json()
+    try:
+        data = json.loads(payload)
+    except Exception:
+        raise HTTPException(400, "Invalid JSON payload")
     event = data.get("event")
     entity = data.get("payload", {}).get("payment", {}).get("entity", {})
     if event == "payment.captured":

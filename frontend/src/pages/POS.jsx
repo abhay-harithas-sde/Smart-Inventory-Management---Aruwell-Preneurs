@@ -14,6 +14,8 @@ export default function POS() {
   const [paymentMode, setPaymentMode] = useState("cash");
   const [lastReceipt, setLastReceipt] = useState(null);
 
+  useEffect(() => { document.title = "POS — Smart Ledger"; }, []);
+
   const { data: products = [] } = useQuery({ queryKey: ["products-pos", q], queryFn: async () => (await api.get(`/inventory/products${q ? `?q=${encodeURIComponent(q)}` : ""}`)).data });
   const { data: locations = [] } = useQuery({ queryKey: ["locations"], queryFn: async () => (await api.get("/inventory/locations")).data });
   const [selectedLocationId, setSelectedLocationId] = useState(null);
@@ -233,6 +235,31 @@ function ReceiptModal({ sale, onClose }) {
     const t = setTimeout(onClose, 5000);
     return () => clearTimeout(t);
   }, [onClose]);
+
+  const handlePrint = () => {
+    const win = window.open("", "_blank", "width=400,height=600");
+    if (!win) return;
+    const lines = sale.lines.map(l =>
+      `<div style="display:flex;justify-content:space-between"><span>${l.qty}× ${l.name.slice(0, 22)}</span><span>₹${Number(l.line_total).toFixed(2)}</span></div>`
+    ).join("");
+    win.document.write(`
+      <html><head><title>Receipt ${sale.invoice_no}</title>
+      <style>body{font-family:monospace;font-size:12px;padding:16px;width:280px}
+      .header{text-align:center;border-bottom:1px dashed #999;padding-bottom:8px;margin-bottom:8px}
+      .total{display:flex;justify-content:space-between;font-weight:bold;border-top:1px dashed #999;padding-top:8px;margin-top:8px}
+      .footer{text-align:center;font-size:10px;margin-top:12px}
+      </style></head><body>
+      <div class="header"><b>RECEIPT</b><br/><span>${sale.invoice_no}</span></div>
+      ${lines}
+      <div class="total"><span>TOTAL</span><span>₹${Number(sale.total).toFixed(2)}</span></div>
+      <div class="footer">Paid via ${sale.payment_mode.toUpperCase()}<br/>Thank you!</div>
+      </body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+    win.close();
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="receipt-modal" onClick={onClose}>
       <div className="bg-white text-black rounded-md p-6 w-80 font-mono text-[12px]" onClick={(e) => e.stopPropagation()}>
@@ -250,7 +277,7 @@ function ReceiptModal({ sale, onClose }) {
           <span>TOTAL</span><span>{fmtCurrency(sale.total)}</span>
         </div>
         <div className="text-center text-[10px] mt-3">Paid via {sale.payment_mode.toUpperCase()}</div>
-        <button onClick={() => window.print()} className="w-full mt-3 h-8 bg-black text-white rounded text-[11px]">Print</button>
+        <button onClick={handlePrint} className="w-full mt-3 h-8 bg-black text-white rounded text-[11px]">Print</button>
       </div>
     </div>
   );

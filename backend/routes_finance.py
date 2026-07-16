@@ -28,7 +28,7 @@ async def create_expense(inp: ExpenseIn, ctx: AuthContext = Depends(require_role
 @router.get("/pnl")
 async def pnl(ctx: AuthContext = Depends(get_current)):
     sales = await db.sales.find({"tenant_id": ctx.tenant_id, "status": {"$ne": "refunded"}}, {"_id": 0}).to_list(5000)
-    revenue = sum(s.get("subtotal", 0) for s in sales)
+    revenue = sum(s.get("total", 0) for s in sales)
     tax_collected = sum(s.get("tax", 0) for s in sales)
 
     # COGS: sum of unit_cost * qty for sale movements

@@ -11,7 +11,9 @@ export default function Finance() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ category: "", amount: 0, note: "" });
 
-  const { data: pnl } = useQuery({ queryKey: ["pnl"], queryFn: async () => (await api.get("/finance/pnl")).data });
+  React.useEffect(() => { document.title = "Finance — Smart Ledger"; }, []);
+
+  const { data: pnl, isLoading: pnlLoading } = useQuery({ queryKey: ["pnl"], queryFn: async () => (await api.get("/finance/pnl")).data });
   const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: async () => (await api.get("/finance/expenses")).data });
 
   const save = useMutation({
@@ -23,7 +25,10 @@ export default function Finance() {
   const Metric = ({ label, value, tone }) => (
     <div className="surface rounded-md p-4">
       <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">{label}</div>
-      <div className={`font-display text-2xl font-semibold tabular ${tone === "good" ? "text-emerald-400" : tone === "bad" ? "text-red-400" : ""}`}>{fmtCurrency(value)}</div>
+      {pnlLoading
+        ? <div className="h-8 w-24 rounded bg-[#27272A] animate-pulse" />
+        : <div className={`font-display text-2xl font-semibold tabular ${tone === "good" ? "text-emerald-400" : tone === "bad" ? "text-red-400" : ""}`}>{fmtCurrency(value)}</div>
+      }
     </div>
   );
 

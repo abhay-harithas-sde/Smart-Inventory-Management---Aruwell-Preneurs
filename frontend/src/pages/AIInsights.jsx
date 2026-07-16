@@ -8,6 +8,8 @@ export default function AIInsights() {
   const { data: forecast, isLoading: fl } = useQuery({ queryKey: ["forecast"], queryFn: async () => (await api.get("/ai/forecast")).data });
   const { data: insights, isLoading: il } = useQuery({ queryKey: ["ai-narr"], queryFn: async () => (await api.get("/ai/insights")).data });
 
+  React.useEffect(() => { document.title = "AI Insights — Smart Ledger"; }, []);
+
   return (
     <div className="p-6 space-y-4" data-testid="ai-page">
       <div>

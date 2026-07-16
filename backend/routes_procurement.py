@@ -16,7 +16,12 @@ async def list_suppliers(ctx: AuthContext = Depends(get_current)):
 
 @router.post("/suppliers")
 async def create_supplier(body: dict, ctx: AuthContext = Depends(require_roles("owner", "manager"))):
-    s = Supplier(tenant_id=ctx.tenant_id, **body)
+    if not body.get("name", "").strip():
+        raise HTTPException(422, "name is required")
+    # Explicitly pick allowed fields to prevent field injection
+    allowed = {"name", "contact_name", "phone", "email", "address", "gstin", "payment_terms"}
+    safe = {k: v for k, v in body.items() if k in allowed}
+    s = Supplier(tenant_id=ctx.tenant_id, **safe)
     await db.suppliers.insert_one(s.model_dump())
     return s.model_dump()
 
@@ -70,15 +75,16 @@ async def receive_grn(inp: GRNIn, ctx: AuthContext = Depends(require_roles("owne
         if not base:
             continue
         base["received_qty"] = base.get("received_qty", 0) + gline.qty
+        # read stock level BEFORE applying movement to get accurate weighted average
+        lvl_doc_pre = await db.stock_levels.find_one({"tenant_id": ctx.tenant_id, "product_id": gline.product_id, "location_id": po["location_id"]})
+        prev_qty = lvl_doc_pre.get("qty", 0) if lvl_doc_pre else 0
+        prev_avg = lvl_doc_pre.get("avg_cost", 0) if lvl_doc_pre else 0
         # apply stock in
         await _apply_movement(
             ctx.tenant_id, gline.product_id, po["location_id"], abs(float(gline.qty)),
             "purchase", po["id"], f"GRN for {po['po_no']}", unit_cost=gline.cost,
         )
-        # update product avg cost using weighted average
-        lvl_doc = await db.stock_levels.find_one({"tenant_id": ctx.tenant_id, "product_id": gline.product_id, "location_id": po["location_id"]})
-        prev_qty = lvl_doc.get("qty", 0) if lvl_doc else 0
-        prev_avg = lvl_doc.get("avg_cost", 0) if lvl_doc else 0
+        # update product avg cost using weighted average (pre-movement values)
         total_qty = prev_qty + gline.qty
         new_avg_cost = ((prev_qty * prev_avg) + (gline.qty * gline.cost)) / total_qty if total_qty else gline.cost
         await db.products.update_one({"tenant_id": ctx.tenant_id, "id": gline.product_id}, {"$set": {"cost": round(new_avg_cost, 4)}})

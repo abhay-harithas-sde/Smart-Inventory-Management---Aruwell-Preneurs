@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { Dialog, DialogContent } from "./ui/dialog";
-import { Sparkles, Send, Loader2, Table as TableIcon, BarChart3 } from "lucide-react";
+import { Sparkles, Send, Loader2, Table as TableIcon, BarChart3, TrendingUp, PieChart as PieChartIcon } from "lucide-react";
 import api from "../lib/api";
 import { fmtCurrency, fmtNumber } from "../lib/fmt";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 const SUGGESTIONS = [
   "What were my top 5 products last month?",
@@ -98,7 +98,7 @@ export default function NLQDialog({ open, onOpenChange }) {
                 <div className="text-[13px] text-zinc-400 mb-3 leading-relaxed">{result.explanation}</div>
               )}
               <div className="flex items-center gap-2 mb-3 text-[11px] text-zinc-500">
-                {result.chart === "bar" || result.chart === "line" ? <BarChart3 className="w-3 h-3" /> : <TableIcon className="w-3 h-3" />}
+                {result.chart === "bar" ? <BarChart3 className="w-3 h-3" /> : result.chart === "line" ? <TrendingUp className="w-3 h-3" /> : result.chart === "pie" ? <PieChartIcon className="w-3 h-3" /> : <TableIcon className="w-3 h-3" />}
                 <span>{result.row_count} rows · {result.collection}</span>
               </div>
 
@@ -115,6 +115,48 @@ export default function NLQDialog({ open, onOpenChange }) {
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
+                </div>
+              )}
+
+              {result.chart === "line" && result.rows.length > 0 && columns.length >= 2 && (
+                <div className="h-64 mb-4">
+                  <ResponsiveContainer>
+                    <LineChart data={result.rows}>
+                      <CartesianGrid stroke="#27272A" vertical={false} />
+                      <XAxis dataKey={columns[0]} tick={{ fill: "#71717A", fontSize: 11 }} />
+                      <YAxis tick={{ fill: "#71717A", fontSize: 11 }} />
+                      <Tooltip contentStyle={{ background: "#18181B", border: "1px solid #27272A", borderRadius: 6 }} />
+                      <Line type="monotone" dataKey={columns.find(c => typeof result.rows[0][c] === "number") || columns[1]} stroke="#3B82F6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {result.chart === "pie" && result.rows.length > 0 && columns.length >= 2 && (
+                <div className="h-64 mb-4">
+                  <ResponsiveContainer>
+                    <PieChart>
+                      <Pie
+                        data={result.rows}
+                        dataKey={columns.find(c => typeof result.rows[0][c] === "number") || columns[1]}
+                        nameKey={columns[0]}
+                        cx="50%" cy="50%"
+                        outerRadius={90} innerRadius={50}
+                        strokeWidth={2} stroke="#09090B"
+                      >
+                        {result.rows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ background: "#18181B", border: "1px solid #27272A", borderRadius: 6 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex flex-wrap gap-2 mt-1 text-[11px]">
+                    {result.rows.map((row, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-sm" style={{ background: COLORS[i % COLORS.length] }} />
+                        <span className="text-zinc-400">{String(row[columns[0]] ?? "")}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

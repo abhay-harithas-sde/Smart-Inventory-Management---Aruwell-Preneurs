@@ -13,7 +13,7 @@ from openai import AsyncOpenAI, RateLimitError, AuthenticationError
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
-EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", None)
 

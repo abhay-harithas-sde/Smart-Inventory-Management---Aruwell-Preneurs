@@ -18,6 +18,8 @@ export default function Inventory() {
   const [form, setForm] = useState(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
+  React.useEffect(() => { document.title = "Inventory — Smart Ledger"; }, []);
+
   const { data: products = [], isLoading } = useQuery({ queryKey: ["products", q], queryFn: async () => (await api.get(`/inventory/products${q ? `?q=${encodeURIComponent(q)}` : ""}`)).data });
   const { data: alerts } = useQuery({ queryKey: ["alerts"], queryFn: async () => (await api.get("/inventory/alerts")).data });
 
