@@ -18,13 +18,23 @@ export default function Settings() {
   const { data: users = [] } = useQuery({ queryKey: ["users"], queryFn: async () => (await api.get("/auth/users")).data });
 
   const invite = useMutation({
-    mutationFn: async () => (await api.post("/auth/invite", form)).data,
+    mutationFn: async () => {
+      const saved = { ...form }; // snapshot before async
+      const data = (await api.post("/auth/invite", saved)).data;
+      return { ...data, _form: saved };
+    },
     onSuccess: (data) => {
-      toast.success(data.email_sent ? "Member invited — email sent" : "Member invited (email not sent)");
-      qc.invalidateQueries({ queryKey: ["users"] });
+      toast.success(data.email_sent ? "Member invited — email sent ✓" : "Member invited (email not sent)");
       setOpen(false);
-      setShareData({ email: form.email, password: form.password, name: form.name, role: form.role, emailSent: data.email_sent });
       setForm({ email: "", name: "", role: "cashier", password: "" });
+      qc.invalidateQueries({ queryKey: ["users"] });
+      setShareData({
+        email: data._form.email,
+        password: data._form.password,
+        name: data._form.name,
+        role: data._form.role,
+        emailSent: data.email_sent,
+      });
     },
     onError: (e) => toast.error(e?.response?.data?.detail || "Failed"),
   });
@@ -95,7 +105,7 @@ export default function Settings() {
       </Dialog>
 
       {/* Share credentials dialog — shown after successful invite */}
-      {shareData && <ShareCredentialsDialog data={shareData} onClose={() => setShareData(null)} />}
+      {shareData && <ShareCredentialsDialog data={shareData} onClose={() => { setShareData(null); qc.invalidateQueries({ queryKey: ["users"] }); }} />}
     </div>
   );
 }
