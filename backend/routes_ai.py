@@ -30,7 +30,7 @@ async def _call_gemini(system: str, user: str) -> str:
     genai.configure(api_key=GEMINI_API_KEY)
     # Try models in order until one works
     models_to_try = ["gemini-flash-latest", "gemini-2.0-flash-lite", "gemini-1.5-flash-latest"]
-    last_err = None
+    errors = []
     for model_name in models_to_try:
         try:
             model = genai.GenerativeModel(
@@ -40,14 +40,15 @@ async def _call_gemini(system: str, user: str) -> str:
             resp = model.generate_content(user)
             return resp.text
         except Exception as e:
-            last_err = e
             err_str = str(e)
-            # quota exhausted, model not found, or key suspended — try next
-            if "429" in err_str or "404" in err_str or "403" in err_str or "quota" in err_str.lower() or "suspended" in err_str.lower():
+            errors.append(f"[{model_name}] {err_str[:200]}")
+            # skip to next on quota/auth/not-found/disabled errors
+            if any(code in err_str for code in ["429", "404", "403", "400"]) or \
+               any(kw in err_str.lower() for kw in ["quota", "suspended", "not found", "permission", "disabled", "billing"]):
                 continue
-            # any other error — raise immediately
-            raise HTTPException(500, f"AI service error: {err_str[:300]}")
-    raise HTTPException(503, f"All AI models quota exhausted. Please try again later.")
+            # unexpected error — surface with full detail
+            raise HTTPException(500, f"AI error ({model_name}): {err_str[:300]}")
+    raise HTTPException(503, "AI unavailable: " + " | ".join(errors))
 
 
 # Shim: wraps AsyncOpenAI so existing call-sites work unchanged
