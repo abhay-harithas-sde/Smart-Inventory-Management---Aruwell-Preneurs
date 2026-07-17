@@ -81,6 +81,32 @@ async def create_product(inp: ProductIn, ctx: AuthContext = Depends(require_role
     return p.model_dump()
 
 
+@router.post("/products/bulk")
+async def bulk_create_products(items: list[ProductIn], ctx: AuthContext = Depends(require_roles("owner", "manager", "warehouse"))):
+    """Create multiple products at once (CSV import). Skips rows with duplicate SKUs."""
+    if not items:
+        raise HTTPException(422, "No items provided")
+    if len(items) > 500:
+        raise HTTPException(422, "Maximum 500 products per import")
+
+    # Fetch all existing SKUs for this tenant in one query
+    existing_docs = await db.products.find({"tenant_id": ctx.tenant_id}, {"sku": 1, "_id": 0}).to_list(10000)
+    existing_skus = {d["sku"] for d in existing_docs}
+
+    created = []
+    skipped = []
+    for inp in items:
+        if inp.sku in existing_skus:
+            skipped.append(inp.sku)
+            continue
+        p = Product(tenant_id=ctx.tenant_id, **inp.model_dump())
+        await db.products.insert_one(p.model_dump())
+        existing_skus.add(inp.sku)  # prevent duplicates within the same batch
+        created.append(p.model_dump())
+
+    return {"created": len(created), "skipped": skipped, "products": created}
+
+
 @router.put("/products/{pid}")
 async def update_product(pid: str, inp: ProductIn, ctx: AuthContext = Depends(require_roles("owner", "manager", "warehouse"))):
     r = await db.products.update_one({"tenant_id": ctx.tenant_id, "id": pid}, {"$set": inp.model_dump()})

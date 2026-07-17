@@ -8,13 +8,25 @@ export const fmtNumber = (n) => new Intl.NumberFormat("en-IN").format(Number(n |
 export const fmtDate = (iso) => {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${dd}-${mm}-${yyyy}`;
   } catch { return iso; }
 };
 
 export const fmtDateTime = (iso) => {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12 || 12;
+    return `${dd}-${mm}-${yyyy} ${hours}:${minutes} ${ampm}`;
   } catch { return iso; }
 };

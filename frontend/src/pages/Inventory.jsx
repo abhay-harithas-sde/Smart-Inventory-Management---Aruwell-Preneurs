@@ -1,14 +1,67 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../lib/api";
 import { fmtCurrency, fmtNumber } from "../lib/fmt";
-import { Plus, Search, AlertTriangle, X, Upload, Loader2 } from "lucide-react";
+import { Plus, Search, AlertTriangle, X, Upload, Loader2, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 import { uploadImageSigned } from "../lib/upload";
 
 const emptyForm = { sku: "", barcode: "", name: "", category: "", unit: "pcs", tax_rate: 18, price: 0, cost: 0, reorder_level: 10, lead_time_days: 7, track_batch: false, image_url: "" };
+
+// CSV column → ProductIn field mapping (case-insensitive header matching)
+const CSV_FIELD_MAP = {
+  sku: "sku", barcode: "barcode", name: "name", category: "category",
+  unit: "unit", tax_rate: "tax_rate", "tax rate": "tax_rate", "tax%": "tax_rate",
+  price: "price", cost: "cost", reorder_level: "reorder_level", "reorder level": "reorder_level",
+  lead_time_days: "lead_time_days", "lead time days": "lead_time_days",
+  track_batch: "track_batch", "track batch": "track_batch", image_url: "image_url",
+};
+const NUM_FIELDS = new Set(["tax_rate", "price", "cost", "reorder_level", "lead_time_days"]);
+const BOOL_FIELDS = new Set(["track_batch"]);
+
+function parseCSV(text) {
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(Boolean);
+  if (lines.length < 2) return { rows: [], errors: ["CSV must have at least a header row and one data row"] };
+
+  // Simple CSV parser — handles quoted fields
+  const parseRow = (line) => {
+    const fields = [];
+    let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === "," && !inQ) { fields.push(cur.trim()); cur = ""; }
+      else cur += ch;
+    }
+    fields.push(cur.trim());
+    return fields;
+  };
+
+  const headers = parseRow(lines[0]).map((h) => h.toLowerCase().trim());
+  const fieldKeys = headers.map((h) => CSV_FIELD_MAP[h] || null);
+
+  const rows = [];
+  const errors = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const vals = parseRow(lines[i]);
+    const row = { sku: "", name: "", barcode: "", category: "", unit: "pcs", tax_rate: 18, price: 0, cost: 0, reorder_level: 10, lead_time_days: 7, track_batch: false, image_url: "" };
+    fieldKeys.forEach((key, idx) => {
+      if (!key) return;
+      const raw = vals[idx] ?? "";
+      if (NUM_FIELDS.has(key)) row[key] = parseFloat(raw) || 0;
+      else if (BOOL_FIELDS.has(key)) row[key] = ["true", "1", "yes"].includes(raw.toLowerCase());
+      else row[key] = raw;
+    });
+    if (!row.sku) { errors.push(`Row ${i + 1}: missing SKU — skipped`); continue; }
+    if (!row.name) { errors.push(`Row ${i + 1}: missing Name — skipped`); continue; }
+    rows.push(row);
+  }
+
+  return { rows, errors };
+}
 
 export default function Inventory() {
   const qc = useQueryClient();
@@ -17,6 +70,8 @@ export default function Inventory() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [csvPreview, setCsvPreview] = useState(null); // { rows, errors } | null
+  const [csvImporting, setCsvImporting] = useState(false);
 
   React.useEffect(() => { document.title = "Inventory — Smart Ledger"; }, []);
 
@@ -33,6 +88,35 @@ export default function Inventory() {
     mutationFn: async (pid) => (await api.delete(`/inventory/products/${pid}`)).data,
     onSuccess: () => { toast.success("Deleted"); qc.invalidateQueries({ queryKey: ["products"] }); },
   });
+
+  const handleCSVFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const { rows, errors } = parseCSV(e.target.result);
+      if (rows.length === 0 && errors.length > 0) {
+        toast.error("No valid rows found in CSV");
+        return;
+      }
+      setCsvPreview({ rows, errors, fileName: file.name });
+    };
+    reader.readAsText(file);
+  };
+
+  const runBulkImport = async () => {
+    if (!csvPreview?.rows?.length) return;
+    setCsvImporting(true);
+    try {
+      const res = (await api.post("/inventory/products/bulk", csvPreview.rows)).data;
+      toast.success(`Imported ${res.created} product${res.created !== 1 ? "s" : ""}${res.skipped.length ? ` (${res.skipped.length} duplicate SKU${res.skipped.length !== 1 ? "s" : ""} skipped)` : ""}`);
+      qc.invalidateQueries({ queryKey: ["products"] });
+      setCsvPreview(null);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Bulk import failed");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
 
   const startEdit = (p) => {
     setEditing(p.id);
@@ -130,7 +214,7 @@ export default function Inventory() {
         <DialogContent className="max-w-lg bg-[#0C0C0F] border-[#27272A]">
           <DialogTitle className="font-display text-lg">{editing ? "Edit product" : "New product"}</DialogTitle>
 
-          <ImageUploader value={form.image_url} onChange={(url) => set("image_url", url)} />
+          <ImageUploader value={form.image_url} onChange={(url) => set("image_url", url)} onCSV={handleCSVFile} />
 
           <div className="grid grid-cols-2 gap-3 mt-3">
             <Field label="SKU" value={form.sku} onChange={(v) => set("sku", v)} testId="pf-sku" />
@@ -168,6 +252,82 @@ export default function Inventory() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* CSV Import Preview Dialog */}
+      <Dialog open={!!csvPreview} onOpenChange={(v) => { if (!v) setCsvPreview(null); }}>
+        <DialogContent className="max-w-3xl bg-[#0C0C0F] border-[#27272A] max-h-[80vh] flex flex-col">
+          <DialogTitle className="font-display text-lg flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4 text-blue-400" />
+            CSV Import Preview
+          </DialogTitle>
+
+          {csvPreview && (
+            <>
+              <div className="text-[12px] text-zinc-400 mb-2">
+                <span className="text-zinc-200 font-medium">{csvPreview.fileName}</span>
+                {" — "}
+                <span className="text-emerald-400">{csvPreview.rows.length} valid row{csvPreview.rows.length !== 1 ? "s" : ""}</span>
+                {csvPreview.errors.length > 0 && (
+                  <span className="text-amber-400 ml-2">{csvPreview.errors.length} row{csvPreview.errors.length !== 1 ? "s" : ""} skipped</span>
+                )}
+              </div>
+
+              {csvPreview.errors.length > 0 && (
+                <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-3 mb-3">
+                  <div className="flex items-center gap-1.5 text-amber-400 text-[11px] font-medium mb-1.5">
+                    <AlertCircle className="w-3 h-3" /> Parse warnings
+                  </div>
+                  <ul className="space-y-0.5">
+                    {csvPreview.errors.map((e, i) => (
+                      <li key={i} className="text-[11px] text-amber-300/80">{e}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-auto rounded-md border border-[#27272A]">
+                <table className="w-full text-[11px]">
+                  <thead className="bg-[#18181B] text-zinc-500 uppercase tracking-wider text-[10px] sticky top-0">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">SKU</th>
+                      <th className="text-left px-3 py-2 font-medium">Name</th>
+                      <th className="text-left px-3 py-2 font-medium">Category</th>
+                      <th className="text-left px-3 py-2 font-medium">Unit</th>
+                      <th className="text-right px-3 py-2 font-medium">Price</th>
+                      <th className="text-right px-3 py-2 font-medium">Cost</th>
+                      <th className="text-right px-3 py-2 font-medium">Tax %</th>
+                      <th className="text-right px-3 py-2 font-medium">Reorder</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#27272A]">
+                    {csvPreview.rows.map((row, i) => (
+                      <tr key={i} className="hover:bg-[#18181B]/60">
+                        <td className="px-3 py-1.5 font-mono text-zinc-300">{row.sku}</td>
+                        <td className="px-3 py-1.5 text-zinc-200">{row.name}</td>
+                        <td className="px-3 py-1.5 text-zinc-400">{row.category || "—"}</td>
+                        <td className="px-3 py-1.5 text-zinc-400">{row.unit}</td>
+                        <td className="px-3 py-1.5 text-right tabular">{fmtCurrency(row.price)}</td>
+                        <td className="px-3 py-1.5 text-right tabular text-zinc-500">{fmtCurrency(row.cost)}</td>
+                        <td className="px-3 py-1.5 text-right tabular">{row.tax_rate}%</td>
+                        <td className="px-3 py-1.5 text-right tabular">{row.reorder_level}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-4 flex-shrink-0">
+                <button onClick={() => setCsvPreview(null)} className="h-9 px-3 rounded-md bg-[#18181B] border border-[#27272A] hover:bg-[#27272A] text-[13px]">Cancel</button>
+                <button onClick={runBulkImport} disabled={csvImporting || csvPreview.rows.length === 0}
+                  className="h-9 px-4 rounded-md bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-[13px] font-medium flex items-center gap-2">
+                  {csvImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  {csvImporting ? "Importing…" : `Import ${csvPreview.rows.length} product${csvPreview.rows.length !== 1 ? "s" : ""}`}
+                </button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -182,8 +342,10 @@ function Field({ label, value, onChange, type = "text", full, testId }) {
   );
 }
 
-function ImageUploader({ value, onChange }) {
+function ImageUploader({ value, onChange, onCSV }) {
   const [uploading, setUploading] = useState(false);
+  const csvRef = useRef(null);
+
   const onPick = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -197,10 +359,18 @@ function ImageUploader({ value, onChange }) {
     } finally { setUploading(false); }
   };
 
+  const onCSVPick = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    onCSV(file);
+    // reset input so same file can be re-selected
+    e.target.value = "";
+  };
+
   return (
     <div className="mt-3">
       <label className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 block">Product image</label>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="w-16 h-16 rounded-md bg-[#18181B] border border-[#27272A] overflow-hidden flex items-center justify-center">
           {value ? <img src={value} alt="" className="w-full h-full object-cover" /> : <Upload className="w-4 h-4 text-zinc-600" />}
         </div>
@@ -212,7 +382,23 @@ function ImageUploader({ value, onChange }) {
         {value && (
           <button onClick={() => onChange("")} className="text-[11px] text-zinc-500 hover:text-red-400">Remove</button>
         )}
+
+        {/* CSV bulk import button */}
+        <div className="flex items-center gap-1.5 ml-auto">
+          <label
+            className="h-9 px-3 rounded-md bg-[#18181B] border border-[#27272A] hover:bg-[#27272A] text-[12px] font-medium cursor-pointer flex items-center gap-2 text-blue-400 border-blue-500/30"
+            title="Import multiple products from a CSV file"
+            data-testid="pf-csv-upload"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Import CSV
+            <input ref={csvRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onCSVPick} />
+          </label>
+        </div>
       </div>
+      <p className="text-[10px] text-zinc-600 mt-1.5">
+        CSV columns: <span className="font-mono">sku, name, barcode, category, unit, price, cost, tax_rate, reorder_level, lead_time_days</span>
+      </p>
     </div>
   );
 }

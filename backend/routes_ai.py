@@ -10,15 +10,31 @@ from auth import get_current, AuthContext
 from models import NLQIn
 
 from openai import AsyncOpenAI, RateLimitError, AuthenticationError
+import google.generativeai as genai
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", None)
 
 # Max tokens per request to stay within buildathon limits
 MAX_TOKENS = 1000
+
+
+async def _call_gemini(system: str, user: str) -> str:
+    """Call Gemini as a fallback when OpenAI auth fails."""
+    if not GEMINI_API_KEY:
+        raise HTTPException(503, "AI service unavailable — no valid API key configured")
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        system_instruction=system,
+    )
+    resp = model.generate_content(user)
+    return resp.text
+
 
 # Shim: wraps AsyncOpenAI so existing call-sites work unchanged
 class UserMessage:
@@ -52,7 +68,8 @@ class LlmChat:
         except RateLimitError:
             raise HTTPException(429, "AI rate limit reached. Please wait a moment and try again.")
         except AuthenticationError:
-            raise HTTPException(401, "AI service authentication failed. Check API key configuration.")
+            # OpenAI key invalid — transparently fall back to Gemini
+            return await _call_gemini(self._system, msg.text)
         except Exception as e:
             raise HTTPException(500, f"AI service error: {str(e)[:200]}")
 

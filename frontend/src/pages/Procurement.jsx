@@ -246,7 +246,7 @@ function GRNDialog({ po, onClose, onDone }) {
                   <td className="px-3 py-1.5"><input data-testid={`grn-qty-${i}`} type="number" min="0" value={lines[i].qty} onChange={(e) => upd(i, "qty", parseFloat(e.target.value) || 0)} className="w-16 h-7 px-2 bg-[#18181B] border border-[#27272A] rounded text-right tabular" /></td>
                   <td className="px-3 py-1.5"><input type="number" value={lines[i].cost} onChange={(e) => upd(i, "cost", parseFloat(e.target.value) || 0)} className="w-20 h-7 px-2 bg-[#18181B] border border-[#27272A] rounded text-right tabular" /></td>
                   <td className="px-3 py-1.5"><input value={lines[i].batch_no} onChange={(e) => upd(i, "batch_no", e.target.value)} className="w-24 h-7 px-2 bg-[#18181B] border border-[#27272A] rounded" /></td>
-                  <td className="px-3 py-1.5"><input type="date" value={lines[i].expiry_date} onChange={(e) => upd(i, "expiry_date", e.target.value ? new Date(e.target.value).toISOString() : "")} className="w-32 h-7 px-2 bg-[#18181B] border border-[#27272A] rounded" /></td>
+                  <td className="px-3 py-1.5"><input type="date" value={lines[i].expiry_date} onChange={(e) => upd(i, "expiry_date", e.target.value)} className="w-32 h-7 px-2 bg-[#18181B] border border-[#27272A] rounded" /></td>
                 </tr>
               ))}
             </tbody>
