@@ -29,7 +29,7 @@ async def _call_gemini(system: str, user: str) -> str:
         raise HTTPException(503, "AI service unavailable — no valid API key configured")
     genai.configure(api_key=GEMINI_API_KEY)
     # Try models in order until one works
-    models_to_try = ["gemini-2.0-flash-lite", "gemini-1.5-flash-latest", "gemini-1.0-pro"]
+    models_to_try = ["gemini-flash-latest", "gemini-2.0-flash-lite", "gemini-1.5-flash-latest"]
     last_err = None
     for model_name in models_to_try:
         try:
