@@ -10,61 +10,51 @@ from auth import get_current, AuthContext
 from models import NLQIn
 
 from openai import AsyncOpenAI, RateLimitError, AuthenticationError
-import google.generativeai as genai
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", None)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+LLM_MODEL = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
-# Max tokens per request to stay within buildathon limits
+# Max tokens per request
 MAX_TOKENS = 1000
 
 
-async def _call_gemini(system: str, user: str) -> str:
-    """Call Gemini as a fallback when OpenAI auth fails."""
-    if not GEMINI_API_KEY:
-        raise HTTPException(503, "AI service unavailable — no valid API key configured")
-    genai.configure(api_key=GEMINI_API_KEY)
-    # Try models in order until one works
-    models_to_try = ["gemini-flash-latest", "gemini-2.0-flash-lite", "gemini-1.5-flash-latest"]
-    errors = []
-    for model_name in models_to_try:
-        try:
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=system,
-            )
-            resp = model.generate_content(user)
-            return resp.text
-        except Exception as e:
-            err_str = str(e)
-            errors.append(f"[{model_name}] {err_str[:200]}")
-            # skip to next on quota/auth/not-found/disabled errors
-            if any(code in err_str for code in ["429", "404", "403", "400"]) or \
-               any(kw in err_str.lower() for kw in ["quota", "suspended", "not found", "permission", "disabled", "billing"]):
-                continue
-            # unexpected error — surface with full detail
-            raise HTTPException(500, f"AI error ({model_name}): {err_str[:300]}")
-    raise HTTPException(503, "AI unavailable: " + " | ".join(errors))
-
-
-# Shim: wraps AsyncOpenAI so existing call-sites work unchanged
+# Shim: wraps AsyncOpenAI pointed at Groq — existing call-sites unchanged
 class UserMessage:
     def __init__(self, text: str):
         self.text = text
 
 class LlmChat:
     def __init__(self, api_key: str, session_id: str = "", system_message: str = ""):
-        kwargs = {"api_key": api_key}
-        if LLM_BASE_URL:
-            kwargs["base_url"] = LLM_BASE_URL
-        self._client = AsyncOpenAI(**kwargs)
+        if not GROQ_API_KEY:
+            raise HTTPException(503, "AI service unavailable — set GROQ_API_KEY in .env")
+        self._client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL)
         self._system = system_message
         self._model = LLM_MODEL
 
+    def with_model(self, provider: str, model: str) -> "LlmChat":
+        return self
+
+    async def send_message(self, msg: UserMessage) -> str:
+        messages = []
+        if self._system:
+            messages.append({"role": "system", "content": self._system})
+        messages.append({"role": "user", "content": msg.text})
+        try:
+            resp = await self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                max_tokens=MAX_TOKENS,
+            )
+            return resp.choices[0].message.content or ""
+        except RateLimitError:
+            raise HTTPException(429, "AI rate limit reached. Please wait a moment and try again.")
+        except AuthenticationError:
+            raise HTTPException(401, "Groq authentication failed. Check GROQ_API_KEY.")
+        except Exception as e:
+            raise HTTPException(500, f"AI service error: {str(e)[:200]}")
     def with_model(self, provider: str, model: str) -> "LlmChat":
         return self
 
@@ -146,10 +136,10 @@ def _sanitize_pipeline(pipeline: list, tenant_id: str) -> list:
 async def nlq(inp: NLQIn, ctx: AuthContext = Depends(get_current)):
     system = SCHEMA_DESCRIPTION.replace("__TENANT_ID__", ctx.tenant_id)
     chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
+        api_key="",
         session_id=f"nlq-{ctx.tenant_id}-{ctx.user_id}",
         system_message=system,
-    ).with_model("openai", LLM_MODEL)
+    ).with_model("groq", LLM_MODEL)
 
     try:
         resp = await chat.send_message(UserMessage(text=inp.question))
@@ -262,10 +252,10 @@ async def insights(ctx: AuthContext = Depends(get_current)):
     context = f"Recent sales: {order_count} orders, revenue ₹{total_30d:.2f}. Top products: {top_list}."
 
     chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
+        api_key="",
         session_id=f"insights-{ctx.tenant_id}",
         system_message="You are an ERP business analyst. Reply in 3-4 short bullet points with actionable insights. No preamble.",
-    ).with_model("openai", LLM_MODEL)
+    ).with_model("groq", LLM_MODEL)
 
     try:
         resp = await chat.send_message(UserMessage(text=context))
