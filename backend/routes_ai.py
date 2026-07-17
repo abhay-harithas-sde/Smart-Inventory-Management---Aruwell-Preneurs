@@ -55,32 +55,13 @@ class LlmChat:
             raise HTTPException(401, "Groq authentication failed. Check GROQ_API_KEY.")
         except Exception as e:
             raise HTTPException(500, f"AI service error: {str(e)[:200]}")
-    def with_model(self, provider: str, model: str) -> "LlmChat":
-        return self
-
-    async def send_message(self, msg: UserMessage) -> str:
-        messages = []
-        if self._system:
-            messages.append({"role": "system", "content": self._system})
-        messages.append({"role": "user", "content": msg.text})
-        try:
-            resp = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                max_tokens=MAX_TOKENS,
-            )
-            return resp.choices[0].message.content or ""
-        except RateLimitError:
-            raise HTTPException(429, "AI rate limit reached. Please wait a moment and try again.")
-        except AuthenticationError:
-            # OpenAI key invalid — transparently fall back to Gemini
-            return await _call_gemini(self._system, msg.text)
-        except Exception as e:
-            raise HTTPException(500, f"AI service error: {str(e)[:200]}")
 
 SCHEMA_DESCRIPTION = """
 You are a MongoDB aggregation query generator for a multi-tenant ERP.
 Every query MUST include a $match with tenant_id = "__TENANT_ID__" as the FIRST stage.
+
+TODAY'S DATE: __TODAY__  (ISO date, use this for any "today", "this week", "this month" queries)
+
 Collections and fields:
 - sales: {tenant_id, id, invoice_no, created_at (ISO string), total, subtotal, tax,
          customer_name, location_id, payment_mode, status,
@@ -93,10 +74,16 @@ Collections and fields:
 - expenses: {tenant_id, category, amount, date}
 - customers: {tenant_id, id, name, phone}
 
+Date filtering rules (CRITICAL — created_at is stored as ISO string "YYYY-MM-DDTHH:MM:SS..."):
+- "today" → $gte: "__TODAY__T00:00:00", $lte: "__TODAY__T23:59:59"
+- "this week" → $gte: "__WEEK_START__T00:00:00"
+- "this month" → $gte: "__MONTH_START__T00:00:00"
+- "yesterday" → use one day before __TODAY__
+- Always use string comparison with $gte / $lte on created_at
+
 Rules:
 - Return STRICT JSON: {"collection": "<name>", "pipeline": [ ... ], "chart": "table|bar|line|pie", "explanation": "..."}
-- created_at is an ISO-8601 STRING. Use $gte / $lte with string dates.
-- To sum sales line items, use $unwind on "lines".
+- To sum sales totals use the "total" field directly. To sum line items, $unwind "lines" first.
 - Never write to the database. Read-only aggregation only.
 - Limit results to 50 documents unless the user says otherwise.
 - Return JSON ONLY. No markdown, no code fences.
@@ -134,7 +121,17 @@ def _sanitize_pipeline(pipeline: list, tenant_id: str) -> list:
 
 @router.post("/nlq")
 async def nlq(inp: NLQIn, ctx: AuthContext = Depends(get_current)):
-    system = SCHEMA_DESCRIPTION.replace("__TENANT_ID__", ctx.tenant_id)
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    week_start = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
+    month_start = now.strftime("%Y-%m-01")
+
+    system = (SCHEMA_DESCRIPTION
+        .replace("__TENANT_ID__", ctx.tenant_id)
+        .replace("__TODAY__", today)
+        .replace("__WEEK_START__", week_start)
+        .replace("__MONTH_START__", month_start)
+    )
     chat = LlmChat(
         api_key="",
         session_id=f"nlq-{ctx.tenant_id}-{ctx.user_id}",
