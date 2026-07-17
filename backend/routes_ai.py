@@ -29,7 +29,7 @@ async def _call_gemini(system: str, user: str) -> str:
         raise HTTPException(503, "AI service unavailable — no valid API key configured")
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-2.0-flash",
         system_instruction=system,
     )
     resp = model.generate_content(user)
