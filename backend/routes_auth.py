@@ -1,10 +1,11 @@
 """Auth + tenant signup routes."""
 import httpx
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Request
 from typing import Optional
 from db import db, strip_mongo_id
 from auth import hash_password, verify_password, make_token, get_current, AuthContext, require_roles
 from models import Tenant, User, SignupIn, LoginIn, InviteIn, Location
+from email_utils import send_email, invite_email_html
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -127,7 +128,7 @@ async def google_session(x_session_id: Optional[str] = Header(None, alias="X-Ses
 
 
 @router.post("/invite")
-async def invite(inp: InviteIn, ctx: AuthContext = Depends(require_roles("owner", "manager"))):
+async def invite(inp: InviteIn, request: Request, ctx: AuthContext = Depends(require_roles("owner", "manager"))):
     if await db.users.find_one({"email": inp.email.lower()}):
         raise HTTPException(400, "Email already exists")
     user = User(
@@ -138,4 +139,37 @@ async def invite(inp: InviteIn, ctx: AuthContext = Depends(require_roles("owner"
         password_hash=hash_password(inp.password),
     )
     await db.users.insert_one(user.model_dump())
-    return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
+
+    # Send invite email (non-blocking — failure doesn't break the invite)
+    tenant = await db.tenants.find_one({"id": ctx.tenant_id})
+    tenant_name = tenant["name"] if tenant else "Smart Ledger"
+    login_url = str(request.base_url).rstrip("/").replace("http://", "https://")
+    # Use frontend origin if available via Referer/Origin header
+    origin = request.headers.get("origin") or request.headers.get("referer", "").rstrip("/")
+    if origin:
+        login_url = origin.rstrip("/") + "/login"
+    else:
+        login_url = login_url + "/login"
+
+    html, plain = invite_email_html(
+        name=inp.name,
+        email=inp.email.lower(),
+        password=inp.password,
+        role=inp.role,
+        tenant_name=tenant_name,
+        login_url=login_url,
+    )
+    email_sent = await send_email(
+        to=inp.email.lower(),
+        subject=f"You've been invited to {tenant_name} on Smart Ledger",
+        html=html,
+        text=plain,
+    )
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
+        "email_sent": email_sent,
+    }
