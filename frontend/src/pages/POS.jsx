@@ -1,16 +1,22 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../lib/api";
 import { fmtCurrency } from "../lib/fmt";
 import { payWithRazorpay } from "../lib/razorpay";
 import { toast } from "sonner";
-import { Plus, Minus, X, Search, ScanBarcode, Loader2, ReceiptText, IndianRupee } from "lucide-react";
+import { Plus, Minus, X, Search, ScanBarcode, Loader2, ReceiptText, IndianRupee, UserPlus, ChevronDown } from "lucide-react";
 
 export default function POS() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [cart, setCart] = useState([]);
-  const [customer, setCustomer] = useState("");
+  const [customer, setCustomer] = useState("");       // display name (walk-in fallback)
+  const [customerId, setCustomerId] = useState("");   // linked customer id
+  const [customerQ, setCustomerQ] = useState("");     // search input
+  const [showCustomerDrop, setShowCustomerDrop] = useState(false);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [newCust, setNewCust] = useState({ name: "", phone: "", email: "" });
+  const customerRef = useRef(null);
   const [paymentMode, setPaymentMode] = useState("cash");
   const [lastReceipt, setLastReceipt] = useState(null);
 
@@ -19,6 +25,20 @@ export default function POS() {
   const { data: products = [] } = useQuery({ queryKey: ["products-pos", q], queryFn: async () => (await api.get(`/inventory/products${q ? `?q=${encodeURIComponent(q)}` : ""}`)).data });
   const { data: locations = [] } = useQuery({ queryKey: ["locations"], queryFn: async () => (await api.get("/inventory/locations")).data });
   const [selectedLocationId, setSelectedLocationId] = useState(null);
+
+  // Customer search
+  const { data: customerResults = [] } = useQuery({
+    queryKey: ["customers-search", customerQ],
+    queryFn: async () => (await api.get(`/pos/customers${customerQ ? `?q=${encodeURIComponent(customerQ)}` : ""}`)).data,
+    enabled: showCustomerDrop,
+  });
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => { if (customerRef.current && !customerRef.current.contains(e.target)) setShowCustomerDrop(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   useEffect(() => {
     if (locations.length > 0 && !selectedLocationId) {
@@ -31,6 +51,7 @@ export default function POS() {
       const payload = {
         location_id: selectedLocationId,
         customer_name: customer,
+        customer_id: customerId || "",
         lines: cart.map(c => ({ product_id: c.id, name: c.name, sku: c.sku, qty: c.qty, price: c.price, tax_rate: c.tax_rate, line_total: 0 })),
         payment_mode: mode || paymentMode,
       };
@@ -41,13 +62,41 @@ export default function POS() {
       setLastReceipt(data);
       setCart([]);
       setCustomer("");
+      setCustomerId("");
+      setCustomerQ("");
       qc.invalidateQueries({ queryKey: ["products-pos"] });
       qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
     },
     onError: (e) => toast.error(e?.response?.data?.detail || "Checkout failed"),
   });
 
-  const addToCart = (p) => {
+  const createCustomerMut = useMutation({
+    mutationFn: async () => (await api.post("/pos/customers", newCust)).data,
+    onSuccess: (data) => {
+      setCustomer(data.name);
+      setCustomerId(data.id);
+      setCustomerQ(data.name);
+      setShowNewCustomer(false);
+      setShowCustomerDrop(false);
+      setNewCust({ name: "", phone: "", email: "" });
+      qc.invalidateQueries({ queryKey: ["customers-search"] });
+      toast.success(`Customer "${data.name}" added`);
+    },
+    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to create customer"),
+  });
+
+  const selectCustomer = (c) => {
+    setCustomer(c.name);
+    setCustomerId(c.id);
+    setCustomerQ(c.name);
+    setShowCustomerDrop(false);
+  };
+
+  const clearCustomer = () => {
+    setCustomer("");
+    setCustomerId("");
+    setCustomerQ("");
+  };
     setCart((c) => {
       const existing = c.find(x => x.id === p.id);
       if (existing) return c.map(x => x.id === p.id ? { ...x, qty: x.qty + 1 } : x);
@@ -171,12 +220,63 @@ export default function POS() {
               ))}
             </select>
           )}
-          <input
-            data-testid="pos-customer"
-            value={customer} onChange={(e) => setCustomer(e.target.value)}
-            placeholder="Customer name (optional)"
-            className="w-full h-9 px-3 rounded-md bg-[#18181B] border border-[#27272A] text-[13px] focus:border-blue-500 focus:outline-none"
-          />
+          {/* Customer selector */}
+          <div ref={customerRef} className="relative">
+            <div className="flex gap-1">
+              <div className="relative flex-1">
+                <Search className="w-3 h-3 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  data-testid="pos-customer"
+                  value={customerQ}
+                  onChange={(e) => { setCustomerQ(e.target.value); setCustomer(e.target.value); setCustomerId(""); setShowCustomerDrop(true); }}
+                  onFocus={() => setShowCustomerDrop(true)}
+                  placeholder="Search customer…"
+                  className="w-full h-9 pl-8 pr-3 rounded-md bg-[#18181B] border border-[#27272A] text-[13px] focus:border-blue-500 focus:outline-none"
+                />
+                {customerId && <div className="absolute right-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-emerald-400" title="Customer linked" />}
+              </div>
+              {customerId
+                ? <button onClick={clearCustomer} title="Clear customer" className="h-9 w-9 rounded-md bg-[#18181B] border border-[#27272A] hover:border-red-500/40 flex items-center justify-center text-zinc-500 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
+                : <button onClick={() => { setShowNewCustomer(v => !v); setShowCustomerDrop(false); }} title="Add new customer" className="h-9 w-9 rounded-md bg-[#18181B] border border-[#27272A] hover:border-blue-500/40 flex items-center justify-center text-zinc-500 hover:text-blue-400"><UserPlus className="w-3.5 h-3.5" /></button>
+              }
+            </div>
+
+            {showCustomerDrop && (
+              <div className="absolute z-20 left-0 right-0 top-10 bg-[#18181B] border border-[#27272A] rounded-md shadow-xl max-h-48 overflow-auto">
+                {customerResults.length === 0
+                  ? <div className="px-3 py-2 text-[12px] text-zinc-500">No customers found.</div>
+                  : customerResults.slice(0, 8).map(c => (
+                    <button key={c.id} onClick={() => selectCustomer(c)}
+                      className="w-full px-3 py-2 text-left hover:bg-[#27272A] flex flex-col gap-0.5">
+                      <span className="text-[13px] font-medium">{c.name}</span>
+                      <span className="text-[11px] text-zinc-500 font-mono">{[c.phone, c.email].filter(Boolean).join(" · ") || "No contact info"}</span>
+                    </button>
+                  ))
+                }
+              </div>
+            )}
+
+            {showNewCustomer && (
+              <div className="mt-1 p-3 bg-[#18181B] border border-[#27272A] rounded-md space-y-2">
+                <div className="text-[11px] text-zinc-400 font-medium">New customer</div>
+                <input placeholder="Full name *" value={newCust.name} onChange={e => setNewCust(v => ({ ...v, name: e.target.value }))}
+                  className="w-full h-8 px-2 rounded bg-[#09090B] border border-[#27272A] text-[12px] focus:border-blue-500 focus:outline-none" />
+                <input placeholder="Phone (for SMS receipt)" value={newCust.phone} onChange={e => setNewCust(v => ({ ...v, phone: e.target.value }))}
+                  className="w-full h-8 px-2 rounded bg-[#09090B] border border-[#27272A] text-[12px] focus:border-blue-500 focus:outline-none" />
+                <input placeholder="Email (for bill email)" type="email" value={newCust.email} onChange={e => setNewCust(v => ({ ...v, email: e.target.value }))}
+                  className="w-full h-8 px-2 rounded bg-[#09090B] border border-[#27272A] text-[12px] focus:border-blue-500 focus:outline-none" />
+                <div className="flex gap-1 pt-1">
+                  <button onClick={() => createCustomerMut.mutate()} disabled={!newCust.name || createCustomerMut.isPending}
+                    className="flex-1 h-7 rounded bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-[12px] font-medium text-white flex items-center justify-center gap-1">
+                    {createCustomerMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save
+                  </button>
+                  <button onClick={() => setShowNewCustomer(false)} className="h-7 px-2 rounded bg-[#27272A] text-[12px] text-zinc-400 hover:text-white">Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {customerId && <div className="text-[10px] text-emerald-500 mt-1">✓ Bill email &amp; SMS will be sent automatically</div>}
+          </div>
 
           <div className="grid grid-cols-4 gap-1">
             {["cash", "card", "upi", "split"].map(m => (

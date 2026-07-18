@@ -8,6 +8,9 @@ from auth import get_current, AuthContext, require_roles
 from models import Sale, SaleIn, Customer, gen_id, now_iso
 from routes_inventory import _apply_movement
 from email_utils import send_email, bill_email_html
+from twilio.rest import Client as TwilioClient
+from twilio.base.exceptions import TwilioRestException
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,8 @@ async def checkout(inp: SaleIn, ctx: AuthContext = Depends(require_roles("owner"
 
     # Send bill to customer email (non-blocking — never fails the sale)
     asyncio.create_task(_send_bill_email(ctx.tenant_id, sale.model_dump()))
+    # Send SMS receipt if customer has a phone number (non-blocking)
+    asyncio.create_task(_send_bill_sms(ctx.tenant_id, sale.model_dump()))
 
     return sale.model_dump()
 
@@ -134,8 +139,67 @@ async def _send_bill_email(tenant_id: str, sale: dict) -> None:
         logger.error("Failed to send bill email for sale %s: %s", sale.get("id"), e)
 
 
-@router.post("/sales/{sid}/send-email")
-async def resend_bill_email(sid: str, ctx: AuthContext = Depends(require_roles("owner", "manager", "cashier"))):
+async def _send_bill_sms(tenant_id: str, sale: dict) -> None:
+    """Send a short SMS receipt to the customer's phone number. Swallows all exceptions."""
+    try:
+        customer_phone = ""
+        customer_id = sale.get("customer_id", "")
+        if customer_id:
+            customer = await db.customers.find_one({"tenant_id": tenant_id, "id": customer_id})
+            if customer:
+                customer_phone = customer.get("phone", "").strip()
+
+        if not customer_phone:
+            logger.info("No customer phone for sale %s — skipping bill SMS", sale.get("invoice_no"))
+            return
+
+        # Normalise to E.164 (+91 for India if not already prefixed)
+        if not customer_phone.startswith("+"):
+            digits = "".join(c for c in customer_phone if c.isdigit())
+            customer_phone = f"+91{digits}" if len(digits) == 10 else f"+{digits}"
+
+        sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
+        token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+        from_ = os.environ.get("TWILIO_PHONE_NUMBER", "")
+        if not all([sid, token, from_]):
+            logger.warning("Twilio not configured — skipping bill SMS for sale %s", sale.get("invoice_no"))
+            return
+
+        tenant = await db.tenants.find_one({"id": tenant_id})
+        store  = tenant.get("name", "Smart Ledger") if tenant else "Smart Ledger"
+        lines  = sale.get("lines", [])
+        items  = ", ".join(f"{l.get('qty', 1)}x {l.get('name', '')}" for l in lines[:3])
+        if len(lines) > 3:
+            items += f" +{len(lines) - 3} more"
+
+        body = (
+            f"{store}\n"
+            f"Invoice: {sale.get('invoice_no', '')}\n"
+            f"Items: {items}\n"
+            f"Total: Rs.{sale.get('total', 0):.2f}\n"
+            f"Paid via {sale.get('payment_mode', 'cash').upper()}\n"
+            f"Thank you!"
+        )
+
+        client = TwilioClient(sid, token)
+        msg = client.messages.create(from_=from_, to=customer_phone, body=body)
+
+        # Log to notifications collection so quota counter stays accurate
+        await db.notifications.insert_one({
+            "tenant_id": tenant_id, "channel": "sms", "kind": "bill_auto",
+            "sale_id": sale.get("id"), "invoice_no": sale.get("invoice_no"),
+            "to": customer_phone, "body": body,
+            "provider_sid": msg.sid, "sent_at": now_iso(),
+        })
+        logger.info("Bill SMS sent to %s for sale %s", customer_phone, sale.get("invoice_no"))
+    except TwilioRestException as e:
+        logger.warning("Twilio error sending bill SMS for sale %s: %s (code %s)",
+                       sale.get("invoice_no"), e.msg, getattr(e, "code", None))
+    except Exception as e:
+        logger.error("Failed to send bill SMS for sale %s: %s", sale.get("id"), e)
+
+
+@router.post("/sales/{sid}/send-email")async def resend_bill_email(sid: str, ctx: AuthContext = Depends(require_roles("owner", "manager", "cashier"))):
     """Manually re-send the bill email for a sale to the customer's email address."""
     s = await db.sales.find_one({"tenant_id": ctx.tenant_id, "id": sid}, {"_id": 0})
     if not s:

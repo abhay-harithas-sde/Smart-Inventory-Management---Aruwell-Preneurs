@@ -184,7 +184,7 @@ export default function Dashboard() {
         </div>
 
         <div className="surface rounded-md p-5" data-testid="chart-category-mix">
-          <h3 className="font-display text-lg font-medium mb-4">Category mix (30d)</h3>
+          <h3 className="font-display text-lg font-medium mb-4 text-white">Category mix (30d)</h3>
           <div className="h-64">
             <ResponsiveContainer>
               <PieChart>
