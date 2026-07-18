@@ -199,7 +199,8 @@ async def _send_bill_sms(tenant_id: str, sale: dict) -> None:
         logger.error("Failed to send bill SMS for sale %s: %s", sale.get("id"), e)
 
 
-@router.post("/sales/{sid}/send-email")async def resend_bill_email(sid: str, ctx: AuthContext = Depends(require_roles("owner", "manager", "cashier"))):
+@router.post("/sales/{sid}/send-email")
+async def resend_bill_email(sid: str, ctx: AuthContext = Depends(require_roles("owner", "manager", "cashier"))):
     """Manually re-send the bill email for a sale to the customer's email address."""
     s = await db.sales.find_one({"tenant_id": ctx.tenant_id, "id": sid}, {"_id": 0})
     if not s:
