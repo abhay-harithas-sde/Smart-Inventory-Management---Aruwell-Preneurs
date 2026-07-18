@@ -97,6 +97,8 @@ export default function POS() {
     setCustomerId("");
     setCustomerQ("");
   };
+
+  const addToCart = (p) => {
     setCart((c) => {
       const existing = c.find(x => x.id === p.id);
       if (existing) return c.map(x => x.id === p.id ? { ...x, qty: x.qty + 1 } : x);
